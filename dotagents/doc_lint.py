@@ -44,20 +44,26 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
-APP_PACKAGE = "app/src/main/java/app/getknit/knit"
-PACKAGE_DIRS = [APP_PACKAGE, "app/src/test/java/app/getknit/knit", "app/src/main", "wear/src/main/java/app/getknit/knit"]
+def _repo_root() -> Path:
+    """The git repository the command runs in, not this tool's own checkout."""
+    out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False).stdout.strip()
+    return Path(out) if out else Path.cwd()
+
+
+REPO = _repo_root()
+PACKAGE_DIRS: list[str] = []  # extra roots that docs name paths relative to (e.g. a Kotlin package dir)
 
 # The Markdown that points into the code. ADR files are read for ADR ids only (see the module doc).
-DOC_ROOTS = ["AGENTS.md", "CLAUDE.md", ".agents/context", ".agents/rules", ".agents/personas", ".agents/memory/roadmap.md",
-             ".agents/skills/debug-bridge", ".agents/skills/machine-translation", ".agents/skills/upgrade-notes",
-             "docs"]
+DOC_ROOTS = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".agents/context", ".agents/rules", ".agents/memory/roadmap.md", "docs"]
 ADR_DIR = ".agents/memory/decisions"
 SELF = {"scripts/doc-lint.py", "scripts/test_doc_lint.py"}
 
-SOURCE_EXT = re.compile(r"\.(kt|kts|java|py|sh|xml|json|toml|proto|pro|properties|ya?ml|gradle|txt|cfg|conf)$")
-DECL = re.compile(r"\b(?:fun|class|object|interface|val|var|typealias)\s+(?:<[^>]*>\s*)?(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)")
-TYPE_DECL = re.compile(r"\b(?:class|object|interface|typealias)\s+([A-Z]\w*)")
+SOURCE_EXT = re.compile(r"\.(kt|kts|java|go|ts|tsx|js|jsx|mjs|dart|rs|py|sh|xml|json|toml|proto|pro|properties|ya?ml|gradle|txt|cfg|conf)$")
+# Source files whose removed declarations count as retired symbols.
+DECL_GLOBS = ["*.kt", "*.go", "*.ts", "*.tsx", "*.js", "*.jsx", "*.dart", "*.rs"]
+DECL = re.compile(r"\b(?:fun|class|object|interface|val|var|typealias|function|const|let|enum|struct|trait|type)\s+(?:<[^>]*>\s*)?(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)"
+                  r"|\bfunc\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)")  # Go: func Name / func (r T) Name
+TYPE_DECL = re.compile(r"\b(?:class|object|interface|typealias|struct|enum|type)\s+([A-Z]\w*)")
 WORD = re.compile(r"[A-Za-z_]\w*")
 SYMBOL_SPAN = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 LINE_REF = re.compile(r"^([\w./-]+\.(?:kt|kts|py|sh|xml|md)):(\d+)(?:-\d+)?$")
@@ -65,14 +71,14 @@ ADR_ID = re.compile(r"\b(20\d\d-\d\d)\.([a-z0-9]{4})\b|\bADRs? (\d{3})\b")
 ALLOW = re.compile(r"<!--\s*doc-lint:\s*allow\s+(\S+)\s+(?:—|--?)\s*\S[^>]*-->")
 RECORD = re.compile(r"<!--\s*doc-lint:\s*record\s+(?:—|--?)\s*\S[^>]*-->")
 # A sibling repository named just before the id (`knit-ios`, knit-spool, knit-pair, …): its decision log, not ours.
-OTHER_REPO = re.compile(r"\bknit-(?!next\b)[a-z]+\b[^.]{0,80}$")
+OTHER_REPO = re.compile(r"(?!x)x")  # set to a sibling-repo pattern to skip its ADR ids
 FILE_EXT = re.compile(r"kt|kts|py|sh|md|json|xml|yml|yaml|toml|txt|png|tflite")
 FENCE = re.compile(r"^\s*(```|~~~)")
 INLINE_CODE = re.compile(r"(`+)(.+?)\1")
-FENCED_PATH = re.compile(r"(?<![\w./-])((?:scripts|\.agents|\.claude|\.github|\.gitlab|app|docs|vectors|wear|watchface|watchface-monogram)/[\w./-]*\w)")
+FENCED_PATH = re.compile(r"(?<![\w./-])((?:scripts|\.agents|\.claude|\.github|\.gitlab|cmd|internal|pkg|src|lib|app|docs)/[\w./-]*\w)")
 
 RULES = {
-    "retired-symbol": "the name was declared in this repository's Kotlin and has since gone from every tracked source "
+    "retired-symbol": "the name was declared in this repository's source and has since gone from every tracked source "
     "file. Point at the name that replaced it (grep the commit that removed it), or allow it in its paragraph if the "
     "doc is recording the old name on purpose.",
     "missing-member": "`Type.member` names one of the app's types, but no tracked source file mentions the member. "
@@ -80,7 +86,7 @@ RULES = {
     "missing-path": "a path rooted in the repository (`mesh/`, `scripts/`, `.agents/`, …) names no tracked file or "
     "directory. Fix the path, or drop the reference if the file is gone.",
     "line-ref": "`File.kt:N` points past the end of that file. Line refs rot fastest; prefer `Class.member`.",
-    "missing-adr": "the ADR id has no file in .agents/memory/decisions/. Fix the id (`scripts/adr.py` lists them).",
+    "missing-adr": "the ADR id has no file in .agents/memory/decisions/. Fix the id (`dotagents-adr` lists them).",
 }
 
 
@@ -169,18 +175,18 @@ def build_index() -> Index:
             text = (REPO / f).read_text(errors="ignore")
         except OSError:
             continue
-        idx.tokens.update(WORD.findall(strip_comments(text) if f.endswith((".kt", ".kts", ".java")) else text))
+        idx.tokens.update(WORD.findall(strip_comments(text) if f.endswith((".kt", ".kts", ".java", ".go", ".ts", ".tsx", ".js", ".jsx", ".dart", ".rs")) else text))
         idx.lines[f] = text.count("\n") + 1
-        if f.endswith(".kt"):
+        if f.endswith((".kt", ".go", ".ts", ".tsx", ".dart", ".rs")):
             idx.types.update(TYPE_DECL.findall(text))
     idx.roots = {f.split("/")[0] for f in idx.files if "/" in f}
     for base in PACKAGE_DIRS:
         idx.roots.update(d[len(base) + 1:].split("/")[0] for d in idx.dirs if d.startswith(base + "/"))
-    removed = git("log", "-p", "--no-merges", "--format=", "--unified=0", "--", "*.kt")
-    removed += git("diff", "HEAD", "--unified=0", "--", "*.kt")
+    removed = git("log", "-p", "--no-merges", "--format=", "--unified=0", "--", *DECL_GLOBS)
+    removed += git("diff", "HEAD", "--unified=0", "--", *DECL_GLOBS)
     for line in removed.splitlines():
         if line.startswith("-") and not line.startswith("---"):
-            idx.retired.update(DECL.findall(line))
+            idx.retired.update(n for pair in DECL.findall(line) for n in pair if n)
     idx.retired -= idx.tokens
     for f in idx.files:
         if f.startswith(ADR_DIR + "/"):
@@ -341,7 +347,7 @@ def report(findings: list[Finding], stream) -> None:
     for f in findings:
         print(f, file=stream)
     if findings:
-        print(f"\n{len(findings)} finding(s). Rules: scripts/doc-lint.py --rules. A deliberate one is allowed in its "
+        print(f"\n{len(findings)} finding(s). Rules: dotagents-lint --rules. A deliberate one is allowed in its "
               "paragraph with `<!-- doc-lint: allow <name> — <why> -->`.", file=stream)
 
 

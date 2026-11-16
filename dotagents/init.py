@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -38,16 +37,6 @@ def init_repo(repo_path: Path, description: str = "", verification: str = "") ->
 
     for d in [rules_dir, context_dir, memory_dir, trackers_active, trackers_archive]:
         d.mkdir(parents=True, exist_ok=True)
-
-    # Migrate existing flat trackers if present
-    trackers_root = repo_path / "trackers"
-    if trackers_root.is_dir():
-        for item in trackers_root.iterdir():
-            if item.is_file() and item.name.endswith(".md"):
-                target = trackers_active / item.name
-                if not target.exists():
-                    shutil.move(str(item), str(target))
-                    print(f"    Moved {item.name} -> trackers/active/")
 
     # Setup rules/coding.md
     coding_md = rules_dir / "coding.md"
@@ -80,7 +69,9 @@ def init_repo(repo_path: Path, description: str = "", verification: str = "") ->
 
     # Write slim AGENTS.md router
     agents_md = repo_path / "AGENTS.md"
-    if not agents_md.exists() or len(agents_md.read_text(encoding="utf-8").splitlines()) > 60:
+    if agents_md.exists():  # never overwrite: a long AGENTS.md holds rules the template does not
+        print(f"    Kept existing {agents_md.name}; add the routing lines by hand if wanted.")
+    else:
         desc = description or f"the {repo_name} service"
         verif = verification or "- Run repository test suite before commit."
         template = read_template("AGENTS.md")
@@ -90,7 +81,7 @@ def init_repo(repo_path: Path, description: str = "", verification: str = "") ->
             verification_commands=verif
         )
         agents_md.write_text(content, encoding="utf-8")
-        print(f"    Updated {agents_md.name} to slim router.")
+        print(f"    Created {agents_md.name} router.")
 
     print(f"[✓] {repo_name} initialized successfully.")
 
