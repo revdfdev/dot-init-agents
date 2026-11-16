@@ -362,6 +362,15 @@ def main(argv: list[str]) -> int:
         except (json.JSONDecodeError, ValueError):
             return 0
         target = (payload.get("tool_input") or {}).get("file_path") or ""
+        global REPO
+        parent = Path(target).resolve().parent
+        if not target or not parent.is_dir():
+            return 0
+        root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=parent, capture_output=True, text=True,
+                              check=False).stdout.strip()
+        if not root:  # the edited file is in no git repository
+            return 0
+        REPO = Path(root)  # the edited file's repo, wherever the session started
         try:
             rel = str(Path(target).resolve().relative_to(REPO))
         except ValueError:
@@ -383,7 +392,7 @@ def main(argv: list[str]) -> int:
             return 0
         findings = lint_files(all_docs(), build_index())
         if findings:
-            print("Stop blocked: `scripts/doc-lint.py` found doc references the code no longer backs. Fix them "
+            print("Stop blocked: `dotagents-lint` found doc references the code no longer backs. Fix them "
                   "(or allow a deliberate one), then finish:\n", file=sys.stderr)
         report(findings, sys.stderr)
         return 2 if findings else 0

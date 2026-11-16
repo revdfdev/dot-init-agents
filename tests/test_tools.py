@@ -133,5 +133,28 @@ class Adr(unittest.TestCase):
         self.assertNotIn("Traceback", r.stderr)
 
 
+class Hook(unittest.TestCase):
+    def test_hook_checks_the_edited_files_repo_from_any_cwd(self):
+        tmp = Path(tempfile.mkdtemp())
+        repo = git_repo(tmp / "svc")
+        (repo / "AGENTS.md").write_text("See `internal/gone.go`.\n")
+        (repo / "internal").mkdir()
+        (repo / "internal" / "real.go").write_text("package internal\n")
+        commit(repo)
+        payload = '{"tool_input": {"file_path": "%s"}}' % (repo / "AGENTS.md")
+        r = subprocess.run(["python3", str(TOOL / "dotagents" / "doc_lint.py"), "--hook"], cwd=tmp,
+                           input=payload, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("internal/gone.go", r.stderr)
+
+    def test_hook_ignores_files_outside_any_repo(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "notes.md").write_text("`x/y.go`\n")
+        payload = '{"tool_input": {"file_path": "%s"}}' % (tmp / "notes.md")
+        r = subprocess.run(["python3", str(TOOL / "dotagents" / "doc_lint.py"), "--hook"], cwd=tmp,
+                           input=payload, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
