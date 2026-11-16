@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize and enforce the Knit-style dotagents standard across repositories.
+"""Initialize the dotagents standard across repositories.
 
 Usage:
     dotagents-init [path_or_repo]   # Initializes target repo (defaults to current dir)
@@ -87,7 +87,7 @@ def init_repo(repo_path: Path, description: str = "", verification: str = "") ->
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Initialize Knit dotagents standard.")
+    parser = argparse.ArgumentParser(description="Initialize the dotagents standard.")
     parser.add_argument("target", nargs="?", default=".", help="Repo name or directory path (defaults to current dir)")
     parser.add_argument("--all", action="store_true", help="Initialize all sub-repositories in the target directory")
     args = parser.parse_args()

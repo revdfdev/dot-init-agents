@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Mint and index architecture decision records.
 
-    python3 scripts/adr.py new "<title>" [--topics a,b,c]
-    python3 scripts/adr.py index [--check]
+    dotagents-adr new "<title>" [--topics a,b,c]
+    dotagents-adr index [--check]
 
 Decisions live one-per-file in `.agents/memory/decisions/`, and
 `.agents/memory/decisions.md` is a **generated** router over them.
@@ -73,17 +73,17 @@ class Adr:
 
 
 def find_repo_root(start: Path | None = None) -> Path:
-    """Walk up to the directory holding `settings.gradle.kts`.
+    """Walk up to the directory holding `.git` (a folder, or a file in a worktree).
 
-    Not `Path.cwd()`: running this from `app/` would otherwise read a non-existent
+    Not `Path.cwd()`: running this from a subfolder would otherwise read a non-existent
     decisions directory and report "0 decisions", which for a generator means happily
     truncating the router instead of failing.
     """
     directory = (start or Path.cwd()).resolve()
     for candidate in (directory, *directory.parents):
-        if (candidate / "settings.gradle.kts").is_file():
+        if (candidate / ".git").exists():
             return candidate
-    raise AdrError(f"no settings.gradle.kts above {directory}")
+    raise AdrError(f"not inside a git repository: {directory}")
 
 
 def is_legacy_id(adr_id: str) -> bool:
@@ -241,7 +241,7 @@ the test, gate or invariant that keeps this true.
 def command_new(args: argparse.Namespace) -> int:
     title = " ".join(args.title).strip()
     if not title:
-        raise AdrError('usage: python3 scripts/adr.py new "<title>" [--topics a,b,c]')
+        raise AdrError('usage: dotagents-adr new "<title>" [--topics a,b,c]')
 
     slug = slug_for(title)
     if not slug:
@@ -258,6 +258,7 @@ def command_new(args: argparse.Namespace) -> int:
         raise AdrError(f"{file} already exists — rerun to mint a different suffix")
 
     topics = [t.strip() for t in (args.topics or "").split(",") if t.strip()]
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         SCAFFOLD.format(
             id=adr_id,
@@ -273,7 +274,7 @@ def command_new(args: argparse.Namespace) -> int:
 
     print(f"✓ {DECISIONS_DIR}/{file}")
     print(f"  cite as:  ({citation(adr_id)})")
-    print("  then run: python3 scripts/adr.py index")
+    print("  then run: dotagents-adr index")
     return 0
 
 
@@ -287,8 +288,8 @@ row matches; don't guess from the title alone. Supersede by writing a new ADR an
 changing the old one's `Status:` — never by deleting it.
 
 **This file is generated. Do not edit it by hand.** Add a decision with
-`python3 scripts/adr.py new "<title>" --topics a,b`, write the body, then
-`python3 scripts/adr.py index`.
+`dotagents-adr new "<title>" --topics a,b`, write the body, then
+`dotagents-adr index`.
 
 **Two id forms, and both are permanent.** ADRs `001`-`067` predate the split into
 one-file-per-decision and keep their sequence numbers, because `ADR NNN` is cited ~815
@@ -338,7 +339,7 @@ def command_index(args: argparse.Namespace) -> int:
 
     if args.check:
         print(
-            f"✗ {ROUTER_PATH} is stale — run `python3 scripts/adr.py index`",
+            f"✗ {ROUTER_PATH} is stale — run `dotagents-adr index`",
             file=sys.stderr,
         )
         return 1

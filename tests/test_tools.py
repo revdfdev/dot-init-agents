@@ -116,5 +116,22 @@ class Lint(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
+class Adr(unittest.TestCase):
+    def test_new_works_in_a_plain_git_repo(self):
+        repo = git_repo(Path(tempfile.mkdtemp()) / "svc")
+        (repo / "sub").mkdir()
+        r = sh(["python3", str(TOOL / "dotagents" / "adr.py"), "new", "Payroll re-runs are intended", "--topics", "payroll"], repo / "sub")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        sh(["python3", str(TOOL / "dotagents" / "adr.py"), "index"], repo)
+        files = list((repo / ".agents" / "memory" / "decisions").glob("*.md"))
+        self.assertEqual(len(files), 1)
+        self.assertIn("Payroll re-runs are intended", (repo / ".agents" / "memory" / "decisions.md").read_text())
+
+    def test_new_outside_a_repo_fails_cleanly(self):
+        r = sh(["python3", str(TOOL / "dotagents" / "adr.py"), "new", "x"], tempfile.mkdtemp())
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
